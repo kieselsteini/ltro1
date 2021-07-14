@@ -7,7 +7,7 @@ BIN=ltro1.exe
 
 default: $(OBJ)
 	$(CC) $(OBJ) $(LIB) -o $(BIN)
-	mkdir LTRO1 && cp $(BIN) ./SDL2/x86_64-w64-mingw32/bin/SDL2.dll ./SDL2/README-SDL.txt LTRO1 && zip -r9 LTRO1-Win64.zip LTRO1 && rm -rf LTRO1
+	mkdir LTRO1 && cp $(BIN) init.lua ./SDL2/x86_64-w64-mingw32/bin/SDL2.dll ./SDL2/README-SDL.txt LTRO1 && zip -r9 LTRO1-Win64.zip LTRO1 && rm -rf LTRO1
 
 clean:
 	rm -f $(BIN) $(OBJ)
