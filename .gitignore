@@ -1,1 +1,10 @@
+# development files
 .vscode
+Makefile
+SDL2
+
+# build artifacts
+*.o
+ltro1
+ltro1.exe
+LTRO1-Win64.zip

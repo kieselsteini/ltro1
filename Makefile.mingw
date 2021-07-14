@@ -1,12 +1,13 @@
 CC=x86_64-w64-mingw32-gcc -O2 -Wall -I./SDL2/x86_64-w64-mingw32/include/SDL2 -I./lua/src
-LIB=-L./SDL2/x86_64-w64-mingw32/lib -Wl,-subsystem,windows -lmingw32 -lSDL2main -lSDL2.dll -lws2_32 -lm
+LIB=-L./SDL2/x86_64-w64-mingw32/lib -Wl,-subsystem,windows -lmingw32 -lSDL2main -lSDL2.dll -lm
 OBJ_LUA=./lua/src/lapi.o ./lua/src/lauxlib.o ./lua/src/lbaselib.o ./lua/src/lcode.o ./lua/src/lcorolib.o ./lua/src/lctype.o ./lua/src/ldblib.o ./lua/src/ldebug.o ./lua/src/ldo.o ./lua/src/ldump.o ./lua/src/lfunc.o ./lua/src/lgc.o ./lua/src/linit.o ./lua/src/liolib.o ./lua/src/llex.o ./lua/src/lmathlib.o ./lua/src/lmem.o ./lua/src/loadlib.o ./lua/src/lobject.o ./lua/src/lopcodes.o ./lua/src/loslib.o ./lua/src/lparser.o ./lua/src/lstate.o ./lua/src/lstring.o ./lua/src/lstrlib.o ./lua/src/ltable.o ./lua/src/ltablib.o ./lua/src/ltm.o ./lua/src/lundump.o ./lua/src/lutf8lib.o ./lua/src/lvm.o ./lua/src/lzio.o
 OBJ_SRC=./src/ltro1.o
 OBJ=$(OBJ_LUA) $(OBJ_SRC)
 BIN=ltro1.exe
 
 default: $(OBJ)
-	$(CC) -o $(BIN) $(LIB) $(OBJ)
+	$(CC) $(OBJ) $(LIB) -o $(BIN)
+	mkdir LTRO1 && cp $(BIN) ./SDL2/x86_64-w64-mingw32/bin/SDL2.dll ./SDL2/README-SDL.txt LTRO1 && zip -r9 LTRO1-Win64.zip LTRO1 && rm -rf LTRO1
 
 clean:
 	rm -f $(BIN) $(OBJ)
