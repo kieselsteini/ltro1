@@ -120,3 +120,12 @@ Returns nothing.
 ```lua
 ltro.stop(1) -- stop audio channel 1
 ```
+
+## Update Log
+
+### 0.2.0
+- added simple game controller support
+- included Windows build (MinGW 64)
+
+### 0.1.0
+- first implementation

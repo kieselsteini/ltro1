@@ -55,7 +55,7 @@
 ================================================================================
 */
 /*----------------------------------------------------------------------------*/
-#define LTRO_VERSION        "0.1.0"
+#define LTRO_VERSION        "0.2.0"
 #define LTRO_AUTHOR         "Sebastian Steinhauer <s.steinhauer@yahoo.de>"
 
 
@@ -408,15 +408,15 @@ static void mml_parse_note(audio_voice_t *voice, int key) {
 
     // if not a pause check note modifiers
     if (key) {
-        if (*voice->mml == '+' || *voice->mml == '#') { ++key; ++voice->mml; }
-        else if (*voice->mml == '-') { --key; ++voice->mml; }
+        if (*voice->mml == '+' || *voice->mml == '#')   { ++key; ++voice->mml; }
+        else if (*voice->mml == '-')                    { --key; ++voice->mml; }
         key += voice->octave * 12;
         key = clamp(key, 1, 88);
     }
     // check for length and length modifiers
-    if ((tmp = mml_parse_number(voice))) { length = 1.0f / (float)tmp; }
-    else { length = voice->length; }
-    while (*voice->mml == '.') { length *= 1.5f; ++voice->mml; }
+    if ((tmp = mml_parse_number(voice)))    { length = 1.0f / (float)tmp; }
+    else                                    { length = voice->length; }
+    while (*voice->mml == '.')              { length *= 1.5f; ++voice->mml; }
     voice->ttl = (int)(length * voice->tempo);
     // setup note playback
     if (key) {
@@ -676,7 +676,8 @@ static int f_draw(lua_State *L) {
     for (y = 0, pixels += 4; y < h; ++y) {
         for (x = 0; x < w; ++x, ++pixels) {
             color = pixeldecoder[*pixels];
-            if (color != mask) draw_pixel(x0 + x, y0 + y, color);
+            if (color != mask)
+                draw_pixel(x0 + x, y0 + y, color);
         }
     }
 
@@ -782,8 +783,27 @@ static void handle_SDL_key(const SDL_KeyCode code, const int down) {
         default: mask = 0; break;
     }
 
-    if (down) { btn_down |= mask; btn_pressed |= mask; }
-    else btn_down &= ~mask;
+    if (down)   { btn_down |= mask; btn_pressed |= mask; }
+    else        { btn_down &= ~mask;                     }
+}
+
+
+/*----------------------------------------------------------------------------*/
+static void handle_controller_button(const int button, const int down) {
+    Uint8                   mask;
+
+    switch (button) {
+        case SDL_CONTROLLER_BUTTON_DPAD_UP: mask = BUTTON_UP; break;
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN: mask = BUTTON_DOWN; break;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT: mask = BUTTON_LEFT; break;
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: mask = BUTTON_RIGHT; break;
+        case SDL_CONTROLLER_BUTTON_A: mask = BUTTON_A; break;
+        case SDL_CONTROLLER_BUTTON_START: mask = BUTTON_START; break;
+        default: mask = 0; break;
+    }
+
+    if (down)   { btn_down |= mask; btn_pressed |= mask; }
+    else        { btn_down &= ~mask;                     }
 }
 
 
@@ -803,6 +823,14 @@ static void handle_SDL_events() {
 
             case SDL_KEYUP:
                 handle_SDL_key(ev.key.keysym.sym, 0);
+                break;
+            
+            case SDL_CONTROLLERBUTTONDOWN:
+                handle_controller_button(ev.cbutton.button, 1);
+                break;
+            
+            case SDL_CONTROLLERBUTTONUP:
+                handle_controller_button(ev.cbutton.button, 0);
                 break;
         }
     }
