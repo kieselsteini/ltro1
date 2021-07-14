@@ -6,5 +6,5 @@ SDL2
 # build artifacts
 *.o
 ltro1
-ltro1.exe
-LTRO1-Win64.zip
+ltro1.*
+LTRO1-*.zip

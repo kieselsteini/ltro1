@@ -39,6 +39,13 @@
 ================================================================================
 */
 /*----------------------------------------------------------------------------*/
+#ifdef __EMSCRIPTEN__
+    #include <emscripten.h>
+    #include <emscripten/fetch.h>
+#endif
+
+
+/*----------------------------------------------------------------------------*/
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
@@ -55,7 +62,7 @@
 ================================================================================
 */
 /*----------------------------------------------------------------------------*/
-#define LTRO_VERSION        "0.2.0"
+#define LTRO_VERSION        "0.3.0"
 #define LTRO_AUTHOR         "Sebastian Steinhauer <s.steinhauer@yahoo.de>"
 
 
@@ -768,7 +775,7 @@ static int luaopen_ltro1(lua_State *L) {
 ================================================================================
 */
 /*----------------------------------------------------------------------------*/
-static void handle_SDL_key(const SDL_KeyCode code, const int down) {
+static void handle_SDL_key(const SDL_Keycode code, const int down) {
     Uint8                   mask;
 
     switch (code) {
@@ -838,14 +845,107 @@ static void handle_SDL_events() {
 
 
 /*----------------------------------------------------------------------------*/
+#ifdef __EMSCRIPTEN__
+static lua_State            *global_L;
+static Uint32               last_tick;
+static int                  file_fetched = 0;
+
+
+/*----------------------------------------------------------------------------*/
+static void run_event_step() {
+    static double           delta_ticks = 0.0;
+    static lua_Integer      frame_counter = 0;
+    Uint32                  current_tick;
+
+    if (!file_fetched) return; // do nothing when the file is not fetched
+    if (!running) {
+        SDL_PauseAudioDevice(audio_device, SDL_TRUE);
+        emscripten_cancel_main_loop();
+        return;
+    }
+
+    // do single event step
+    handle_SDL_events();
+
+    current_tick = SDL_GetTicks();
+    delta_ticks += current_tick - last_tick;
+    last_tick = current_tick;
+
+    for (; delta_ticks >= FPS_TICKS; delta_ticks -= FPS_TICKS) {
+        if (push_callback(global_L, "on_tick")) {
+            lua_pushinteger(global_L, frame_counter);
+            lua_call(global_L, 1, 0);
+        }
+        ++frame_counter;
+        btn_pressed = 0;
+    }
+
+    render_screen(global_L);    
+}
+
+
+/*----------------------------------------------------------------------------*/
+static void fetch_on_success(emscripten_fetch_t *fetch) {
+    int                     status;
+    
+    // compile the downloaded Lua script
+    status = luaL_loadbuffer(global_L, (const char*)fetch->data, (size_t)fetch->numBytes, "@init.lua");
+    emscripten_fetch_close(fetch);
+    if (status != LUA_OK) lua_error(global_L);
+    lua_call(global_L, 0, 0);
+
+    // call "on_init"
+    if (push_callback(global_L, "on_init"))
+        lua_call(global_L, 0, 0);
+    
+    // make sure the event loop will continue
+    file_fetched = -1;
+}
+
+
+/*----------------------------------------------------------------------------*/
+static void fetch_on_error(emscripten_fetch_t *fetch) {
+    emscripten_fetch_close(fetch);
+    luaL_error(global_L, "Failed to download 'init.lua'");
+}
+
+
+/*----------------------------------------------------------------------------*/
+static void run_event_loop(lua_State *L) {
+    emscripten_fetch_attr_t attr;
+    
+    global_L = L;
+
+    emscripten_fetch_attr_init(&attr);
+    strcpy(attr.requestMethod, "GET");
+    attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
+    attr.onsuccess = fetch_on_success;
+    attr.onerror = fetch_on_error;
+    emscripten_fetch(&attr, "init.lua");
+
+    last_tick = SDL_GetTicks();
+    emscripten_set_main_loop(run_event_step, 0, 1);    
+
+    if (push_callback(global_L, "on_quit"))
+        lua_call(global_L, 0, 0);
+}
+#else
+/*----------------------------------------------------------------------------*/
 static void run_event_loop(lua_State *L) {
     Uint32                  last_tick, current_tick;
     double                  delta_ticks = 0.0;
     lua_Integer             frame_counter = 0;
 
+    // load script and execute
+    if (luaL_loadfile(L, "init.lua") != LUA_OK)
+        lua_error(L);
+    lua_call(L, 0, 0);
+
+    // call on_init
     if (push_callback(L, "on_init"))
         lua_call(L, 0, 0);
 
+    // run the whole event loop
     last_tick = SDL_GetTicks();
     while (running) {
         handle_SDL_events();
@@ -866,9 +966,11 @@ static void run_event_loop(lua_State *L) {
         render_screen(L);
     }
 
+    // call on_quit
     if (push_callback(L, "on_quit"))
         lua_call(L, 0, 0);
 }
+#endif /* __EMSCRIPTEN__ */
 
 
 /*
@@ -887,8 +989,13 @@ static int initialize_ltro1(lua_State *L) {
 
     SDL_zero(audio_voices);
 
-    if (SDL_Init(SDL_INIT_EVERYTHING))
-        luaL_error(L, "SDL_Init() failed: %s", SDL_GetError());
+    #ifdef __EMSCRIPTEN__
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER))
+            luaL_error(L, "SDL_Init() failed: %s", SDL_GetError());
+    #else
+        if (SDL_Init(SDL_INIT_EVERYTHING))
+            luaL_error(L, "SDL_Init() failed: %s", SDL_GetError());
+    #endif /* __EMSCRIPTEN__ */
 
     // determine best window size
     w = SCREEN_WIDTH; h = SCREEN_HEIGHT;
@@ -931,11 +1038,6 @@ static int initialize_ltro1(lua_State *L) {
         luaL_error(L, "SDL_OpenAudioDevice() returned with wrong configuration");
     audio_frequency = have.freq;
     SDL_PauseAudioDevice(audio_device, SDL_FALSE);
-
-    // load script and execute
-    if (luaL_loadfile(L, "init.lua") != LUA_OK)
-        lua_error(L);
-    lua_call(L, 0, 0);
 
     // run event loop
     run_event_loop(L);

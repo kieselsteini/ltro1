@@ -9,6 +9,7 @@
 - music / sound effects are simple Lua strings
 - More info here https://itch.io/jam/lospec-jam-1
 - Public Domain :)
+- SDL2 is the only external dependency
 
 ## Programming API
 ### ltro.quit()
@@ -122,6 +123,9 @@ ltro.stop(1) -- stop audio channel 1
 ```
 
 ## Update Log
+
+### 0.3.0
+- added HTML5/JavaScript port (Emscripten)
 
 ### 0.2.0
 - added simple game controller support
