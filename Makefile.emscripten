@@ -7,7 +7,7 @@ BIN=ltro1.html
 
 default: $(OBJ)
 	$(CC) -o $(BIN) $(LIB) $(OBJ)
-	mkdir LTRO1 && cp ltro1.html ltro1.js ltro1.wasm init.lua LTRO1 && zip -r9 LTRO1-HTML5.zip LTRO1 && rm -rf LTRO1
+	mkdir LTRO1 && cp ltro1.html ltro1.js ltro1.wasm game.lua LTRO1 && zip -r9 LTRO1-HTML5.zip LTRO1 && rm -rf LTRO1
 
 clean:
 	rm -f ltro1.html ltro1.js ltro1.wasm $(OBJ)

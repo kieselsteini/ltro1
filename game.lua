@@ -1,9 +1,8 @@
 -- it's better to require ltro1 :)
 local ltro = require('ltro1')
 
---              size     content
-local sprite = '1212' .. string.rep('012345678901', 12)
-
+-- drawn with the builtin editor
+local sprite = '1212000222222000022666666200226666666220266666666622266886688662266666666662266666666662266566656662226556656622022655566220002266662200000222222000'
 
 -- callback which is called once upon startup
 function ltro.on_init()
@@ -21,7 +20,7 @@ end
 
 -- callback which is called for every frame
 function ltro.on_tick(counter)
-    ltro.draw(sprite, math.random(240) - 1, math.random(135) - 1)
+    ltro.draw(sprite, math.random(240) - 1, math.random(135) - 1, 0)
     ltro.rect(0, 0, 0, 240, 7, true)
     ltro.rect(0, 0, 135-8, 240, 135, true)
     ltro.print(9, 0, 0, string.format('mem=%.2fKiB tick=%d', collectgarbage('count'), counter))

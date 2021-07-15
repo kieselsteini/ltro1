@@ -8,8 +8,19 @@
 - graphics / sprites are simple Lua strings
 - music / sound effects are simple Lua strings
 - More info here https://itch.io/jam/lospec-jam-1
+- integrated sprite editor
 - Public Domain :)
 - SDL2 is the only external dependency
+
+## Functions
+- **F1**: resume with the Lua script
+- **F2**: enter sprite editor
+
+### Lua Script
+The game is programmed using the Lua (http://www.lua.org) programming language. LTRO-1 will include the newest Lua 5.4.3 as its runtime.
+
+### Sprite Editor
+There is a very simple sprite editor in LTRO-1. You can draw 12x12 sprites and export/import it to/from the clipboard. Sou you can simply paste the exported string right into your Lua script.
 
 ## Programming API
 ### ltro.quit()
@@ -124,6 +135,10 @@ ltro.stop(1) -- stop audio channel 1
 ```
 
 ## Update Log
+
+### 0.5.0
+- fixed package creation for Emscripten/Windows
+- added rudimentary sprite editor (can be accessed with F2)
 
 ### 0.4.0
 - renamed "init.lua" to "game.lua"

@@ -62,7 +62,7 @@
 ================================================================================
 */
 /*----------------------------------------------------------------------------*/
-#define LTRO_VERSION        "0.4.0"
+#define LTRO_VERSION        "0.5.0"
 #define LTRO_AUTHOR         "Sebastian Steinhauer <s.steinhauer@yahoo.de>"
 
 
@@ -102,6 +102,10 @@ typedef struct audio_voice_t {
     int                     ttl, t0, t1, t2;
     float                   e0, e1;
 } audio_voice_t;
+
+
+/*----------------------------------------------------------------------------*/
+enum { LTRO_QUIT, LTRO_LUA, LTRO_SPRITE_EDITOR };
 
 
 /*
@@ -304,10 +308,13 @@ static const int            pixeldecoder[256] = {
 ================================================================================
 */
 /*----------------------------------------------------------------------------*/
-static int                  running = -1;
+static int                  ltro_mode = LTRO_LUA;
+static Uint32               last_tick;
+static double               delta_ticks = 0.0;
+static lua_Integer          frame_counter = 0;
 static Uint8                btn_down;
 static Uint8                btn_pressed;
-static int                  clear_color = 0;
+static SDL_Point            mouse;
 
 
 /*----------------------------------------------------------------------------*/
@@ -316,6 +323,7 @@ static SDL_Renderer         *renderer = NULL;
 static SDL_Texture          *texture = NULL;
 static SDL_Surface          *surface32 = NULL;
 static SDL_Surface          *surface8 = NULL;
+static int                  clear_color = 0;
 
 
 /*----------------------------------------------------------------------------*/
@@ -336,6 +344,7 @@ static audio_voice_t        audio_voices[AUDIO_VOICES];
 #define minimum(a, b)       ((a) < (b) ? (a) : (b))
 #define maximum(a, b)       ((a) > (b) ? (a) : (b))
 #define clamp(x, min, max)  maximum(minimum(x, max), min)
+#define swap(T, a, b)       do { T __tmp = a; a = b; b = __tmp; } while (0)
 
 
 /*----------------------------------------------------------------------------*/
@@ -391,6 +400,77 @@ static void render_screen(lua_State *L) {
 static void draw_pixel(int x, int y, Uint8 color) {
     if ((surface8 != NULL) && (x >= 0) && (x < surface8->w) && (y >= 0) && (y < surface8->h)) {
         ((Uint8*)surface8->pixels)[surface8->pitch * y + x] = color;
+    }
+}
+
+
+/*----------------------------------------------------------------------------*/
+static void draw_line(int x0, int y0, int x1, int y1, Uint8 color) {
+    int                     dx =  abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    int                     dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    int                     err = dx + dy, e2;
+
+    color = clamp(color, 0, 9);
+    for (;;) {
+        draw_pixel(x0, y0, color);
+        if (x0 == x1 && y0 == y1) break;
+        e2 = err * 2;
+        if (e2 > dy) { err += dy; x0 += sx; }
+        if (e2 < dx) { err += dx; y0 += sy; }
+    }
+}
+
+
+/*----------------------------------------------------------------------------*/
+static void draw_rect(int x0, int y0, int x1, int y1, Uint8 color, int fill) {
+    int                     x, y;
+
+    if (x0 > x1) swap(int, x0, x1);
+    if (y0 > y1) swap(int, y0, y1);
+    color = clamp(color, 0, 9);
+
+    if (fill) {
+        for (y = y0; y <= y1; ++y) {
+            for (x = x0; x <= x1; ++x) draw_pixel(x, y, color);
+        }
+    } else {
+        for (x = x0; x <= x1; ++x) {
+            draw_pixel(x, y0, color);
+            draw_pixel(x, y1, color);
+        }
+        for (y = y0; y <= y1; ++y) {
+            draw_pixel(x0, y, color);
+            draw_pixel(x1, y, color);
+        }
+    }
+}
+
+
+/*----------------------------------------------------------------------------*/
+static void draw_text(int x0, int y0, Uint8 color, const char *text) {
+    int                     x, y, bits;
+
+    color = clamp(color, 0, 9);
+    for (; *text; ++text, x0 += 8) {
+        for (y = 0; y < 8; ++y) {
+            bits = font8x8[((Uint8)*text) * 8 + y];
+            for (x = 0; x < 8; ++x) {
+                if (bits & (1 << x))
+                    draw_pixel(x0 + x, y0 + y, color);
+            }
+        }
+    }
+}
+
+
+/*----------------------------------------------------------------------------*/
+static void draw_image(int x0, int y0, const char *pixels) {
+    int                     x, y, w, h;
+
+    w = pixeldecoder[(Uint8)pixels[0]] * 10 + pixeldecoder[(Uint8)pixels[1]];
+    h = pixeldecoder[(Uint8)pixels[2]] * 10 + pixeldecoder[(Uint8)pixels[3]];
+    for (y = 0, pixels += 4; y < h; ++y) {
+        for (x = 0; x < w; ++x, ++pixels) draw_pixel(x0 + x, y0 + y, pixeldecoder[(Uint8)*pixels]);
     }
 }
 
@@ -527,7 +607,7 @@ static void mix_audio_voices(void *userdata, Uint8 *stream8, int len8) {
 /*----------------------------------------------------------------------------*/
 static int f_quit(lua_State *L) {
     (void)L;
-    running = 0;
+    ltro_mode = LTRO_QUIT;
     return 0;
 }
 
@@ -589,19 +669,8 @@ static int f_line(lua_State *L) {
     int                     y0 = (int)luaL_checknumber(L, 3);
     int                     x1 = (int)luaL_checknumber(L, 4);
     int                     y1 = (int)luaL_checknumber(L, 5);
-    int                     dx =  abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-    int                     dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-    int                     err = dx + dy, e2;
 
-    color = clamp(color, 0, 9);
-    for (;;) {
-        draw_pixel(x0, y0, color);
-        if (x0 == x1 && y0 == y1) break;
-        e2 = err * 2;
-        if (e2 > dy) { err += dy; x0 += sx; }
-        if (e2 < dx) { err += dx; y0 += sy; }
-    }
-
+    draw_line(x0, y0, x1, y1, color);
     return 0;
 }
 
@@ -614,26 +683,8 @@ static int f_rect(lua_State *L) {
     int                     x1 = (int)luaL_checknumber(L, 4);
     int                     y1 = (int)luaL_checknumber(L, 5);
     int                     fill = lua_toboolean(L, 6);
-    int                     x, y;
 
-    color = clamp(color, 0, 9);
-    if (fill) {
-        for (y = y0; y <= y1; ++y) {
-            for (x = x0; x <= x1; ++x) {
-                draw_pixel(x, y, color);
-            }
-        }
-    } else {
-        for (x = x0; x <= x1; ++x) {
-            draw_pixel(x, y0, color);
-            draw_pixel(x, y1, color);
-        }
-        for (y = y0; y <= y1; ++y) {
-            draw_pixel(x0, y, color);
-            draw_pixel(x1, y, color);
-        }
-    }
-
+    draw_rect(x0, y0, x1, y1, color, fill);
     return 0;
 }
 
@@ -668,20 +719,9 @@ static int f_print(lua_State *L) {
     Uint8                   color = (Uint8)luaL_checkinteger(L, 1);
     int                     x0 = (int)luaL_checknumber(L, 2);
     int                     y0 = (int)luaL_checknumber(L, 3);
-    const Uint8             *text = (const Uint8*)luaL_checkstring(L, 4);
-    int                     x, y, bits;
+    const char              *text = luaL_checkstring(L, 4);
 
-    color = clamp(color, 0, 9);
-    for (; *text; ++text, x0 += 8) {
-        for (y = 0; y < 8; ++y) {
-            bits = font8x8[*text * 8 + y];
-            for (x = 0; x < 8; ++x) {
-                if (bits & (1 << x))
-                    draw_pixel(x0 + x, y0 + y, color);
-            }
-        }
-    }
-
+    draw_text(x0, y0, color, text);
     return 0;
 }
 
@@ -791,16 +831,125 @@ static int luaopen_ltro1(lua_State *L) {
 /*
 ================================================================================
 
+        SPRITE EDITOR
+
+================================================================================
+*/
+/*----------------------------------------------------------------------------*/
+static int mouse_inside(int x0, int y0, int x1, int y1) {
+    return (mouse.x >= x0) && (mouse.x <= x1) && (mouse.y >= y0) && (mouse.y <= y1);
+}
+
+
+/*----------------------------------------------------------------------------*/
+static int handle_button(int x0, int y0, const char *pixels) {
+    draw_image(x0, y0, pixels);
+    if (mouse_inside(x0, y0, x0 + 11, y0 + 11)) {
+        draw_rect(x0, y0, x0 + 11, y0 + 11, 9, 0);
+        return btn_pressed & BUTTON_A;
+    }
+    return 0;
+}
+
+
+/*----------------------------------------------------------------------------*/
+static void run_sprite_editor_tick() {
+    static Uint8            pixels[12][12];
+    static int              current_color = 0;
+    int                     i, x, y, x0, y0, x1, y1;
+
+    SDL_FillRect(surface8, NULL, 0);
+
+    // show color palette
+    for (i = 0; i < 10; ++i) {
+        x0 = i * 12; x1 = x0 + 12 - 1;
+        y0 = SCREEN_HEIGHT - 12; y1 = y0 + 12 - 1;
+        draw_rect(x0, y0, x1, y1, i, 1);
+        if ((btn_down & BUTTON_A) && mouse_inside(x0, y0, x1, y1)) current_color = i;
+        if (i == current_color) draw_rect(x0, y0, x1, y1, 9 - i, 0);
+    }
+
+    // draw sprite
+    for (y = 0; y < 12 * 3; ++y) {
+        y0 = y * 2; y1 = y0 + 1;
+        for (x = 0; x < 12 * 3; ++x) {
+            x0 = x * 2; x1 = x0 + 1;
+            draw_rect(x0, y0, x1, y1, pixels[x % 12][y % 12], 1);
+            if ((btn_down & BUTTON_A) && mouse_inside(x0, y0, x1, y1)) pixels[x % 12][y % 12] = current_color;
+        }
+    }
+    draw_rect(12 * 2 - 1, 12 * 2 - 1, 12 * 4, 12 * 4, 3, 0);
+
+    // draw it as single tile
+    for (y = 0; y < 12; ++y) {
+        for (x = 0; x < 12; ++x) {
+            draw_pixel(12 * 3 * 2 + 32 + x, y, pixels[x][y]);
+        }
+    }
+
+    // save button
+    if (handle_button(200, 8, "1212000000000000022222222220025000000020025000000020025000000020022222222220022222222220022222122220022221112220022222122220022222222220000000000000")) {
+        char                buffer[12 * 12 + 5], *out = buffer;
+        *out++ = '1'; *out++ = '2'; *out++ = '1'; *out++ = '2'; // write header
+        for (y = 0; y < 12; ++y) for (x = 0; x < 12; ++x) *out++ = '0' + pixels[x][y]; // write pixels
+        *out = 0; // finish text buffer
+        SDL_SetClipboardText(buffer); // copy to clipboard
+    }
+
+    // load button
+    if (handle_button(212, 8, "1212000000000000022222222220027700000020027700000020027700000020022222222220022222222220022222122220022221112220022222122220022222222220000000000000")) {
+        char                *buffer, *in;
+        if ((buffer = in = SDL_GetClipboardText()) != NULL) {
+            // check for correct size
+            if (buffer[0] == '1' && buffer[1] == '2' && buffer[2] == '1' && buffer[3] == '2') {
+                for (y = 0, in += 4; y < 12; ++y) for (x = 0; x < 12 && *in; ++x, ++in) pixels[x][y] = pixeldecoder[(Uint8)*in];
+            }
+            SDL_free(buffer);
+        }
+    }
+
+    // clear button
+    if (handle_button(224, 8, "1212000000000000002222222000222222222220022222222200020202020200020202020200020202020200020202020200020202020200020202020200022222222200000000000000")) {
+        for (y = 0; y < 12; ++y) for (x = 0; x < 12; ++x) pixels[x][y] = 0;
+    }
+}
+
+
+/*
+================================================================================
+
         EVENT LOOP
 
 ================================================================================
 */
 /*----------------------------------------------------------------------------*/
+static void handle_mouse_button(const int button, const int down) {
+    Uint8                   mask;
+
+    if (ltro_mode < LTRO_SPRITE_EDITOR) return;
+    switch (button) {
+        case SDL_BUTTON_LEFT: mask = BUTTON_A; break;
+        case SDL_BUTTON_RIGHT: mask = BUTTON_B; break;
+    }
+
+    if (down)   { btn_down |= mask; btn_pressed |= mask; }
+    else        { btn_down &= ~mask;                     }
+}
+
+
+/*----------------------------------------------------------------------------*/
 static void handle_SDL_key(const SDL_Keycode code, const int down) {
     Uint8                   mask;
 
+    if (down) {
+        switch (code) {
+            case SDLK_ESCAPE: ltro_mode = LTRO_QUIT; return;
+            case SDLK_F1: ltro_mode = LTRO_LUA; return;
+            case SDLK_F2: ltro_mode = LTRO_SPRITE_EDITOR; return;
+        }
+    }
+
     switch (code) {
-        case SDLK_ESCAPE: running = 0; return;
         case SDLK_UP: mask = BUTTON_UP; break;
         case SDLK_DOWN: mask = BUTTON_DOWN; break;
         case SDLK_LEFT: mask = BUTTON_LEFT; break;
@@ -842,7 +991,7 @@ static void handle_SDL_events() {
     while (SDL_PollEvent(&ev)) {
         switch (ev.type) {
             case SDL_QUIT:
-                running = 0;
+                ltro_mode = LTRO_QUIT;
                 break;
 
             case SDL_KEYDOWN:
@@ -860,32 +1009,37 @@ static void handle_SDL_events() {
             case SDL_CONTROLLERBUTTONUP:
                 handle_controller_button(ev.cbutton.button, 0);
                 break;
+            
+            case SDL_MOUSEMOTION:
+                mouse.x = ev.motion.x;
+                mouse.y = ev.motion.y;
+                break;
+            
+            case SDL_MOUSEBUTTONDOWN:
+                handle_mouse_button(ev.button.button, 1);
+                break;
+            
+            case SDL_MOUSEBUTTONUP:
+                handle_mouse_button(ev.button.button, 0);
+                break;
         }
     }
 }
 
 
 /*----------------------------------------------------------------------------*/
-#ifdef __EMSCRIPTEN__
-static lua_State            *global_L;
-static Uint32               last_tick;
-static int                  file_fetched = 0;
+static void run_lua_tick(lua_State *L) {
+        if (push_callback(L, "on_tick")) {
+            lua_pushinteger(L, frame_counter);
+            lua_call(L, 1, 0);
+        }
+}
 
 
 /*----------------------------------------------------------------------------*/
-static void run_event_step() {
-    static double           delta_ticks = 0.0;
-    static lua_Integer      frame_counter = 0;
+static void run_event_cycle(lua_State *L) {
     Uint32                  current_tick;
 
-    if (!file_fetched) return; // do nothing when the file is not fetched
-    if (!running) {
-        SDL_PauseAudioDevice(audio_device, SDL_TRUE);
-        emscripten_cancel_main_loop();
-        return;
-    }
-
-    // do single event step
     handle_SDL_events();
 
     current_tick = SDL_GetTicks();
@@ -893,15 +1047,34 @@ static void run_event_step() {
     last_tick = current_tick;
 
     for (; delta_ticks >= FPS_TICKS; delta_ticks -= FPS_TICKS) {
-        if (push_callback(global_L, "on_tick")) {
-            lua_pushinteger(global_L, frame_counter);
-            lua_call(global_L, 1, 0);
+        switch (ltro_mode) {
+            case LTRO_LUA: run_lua_tick(L); break;
+            case LTRO_SPRITE_EDITOR: run_sprite_editor_tick(); break;
         }
         ++frame_counter;
         btn_pressed = 0;
     }
 
-    render_screen(global_L);    
+    render_screen(L);
+}
+
+
+/*----------------------------------------------------------------------------*/
+#ifdef __EMSCRIPTEN__
+static lua_State            *global_L;
+static int                  file_fetched = 0;
+
+
+/*----------------------------------------------------------------------------*/
+static void run_event_step() {
+    if (!file_fetched) return; // do nothing when the file is not fetched
+    if (ltro_mode == LTRO_QUIT) {
+        SDL_PauseAudioDevice(audio_device, SDL_TRUE);
+        emscripten_cancel_main_loop();
+        return;
+    }
+
+    run_event_cycle(global_L);
 }
 
 
@@ -953,10 +1126,6 @@ static void run_event_loop(lua_State *L) {
 #else
 /*----------------------------------------------------------------------------*/
 static void run_event_loop(lua_State *L) {
-    Uint32                  last_tick, current_tick;
-    double                  delta_ticks = 0.0;
-    lua_Integer             frame_counter = 0;
-
     // load script and execute
     if (luaL_loadfile(L, "game.lua") != LUA_OK)
         lua_error(L);
@@ -968,24 +1137,7 @@ static void run_event_loop(lua_State *L) {
 
     // run the whole event loop
     last_tick = SDL_GetTicks();
-    while (running) {
-        handle_SDL_events();
-
-        current_tick = SDL_GetTicks();
-        delta_ticks += current_tick - last_tick;
-        last_tick = current_tick;
-
-        for (; delta_ticks >= FPS_TICKS; delta_ticks -= FPS_TICKS) {
-            if (push_callback(L, "on_tick")) {
-                lua_pushinteger(L, frame_counter);
-                lua_call(L, 1, 0);
-            }
-            ++frame_counter;
-            btn_pressed = 0;
-        }
-
-        render_screen(L);
-    }
+    while (ltro_mode) run_event_cycle(L);
 
     // call on_quit
     if (push_callback(L, "on_quit"))
