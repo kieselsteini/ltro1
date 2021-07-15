@@ -62,7 +62,7 @@
 ================================================================================
 */
 /*----------------------------------------------------------------------------*/
-#define LTRO_VERSION        "0.3.0"
+#define LTRO_VERSION        "0.4.0"
 #define LTRO_AUTHOR         "Sebastian Steinhauer <s.steinhauer@yahoo.de>"
 
 
@@ -93,10 +93,13 @@ enum {
 #define AUDIO_FREQUENCY     44100
 #define AUDIO_VOICES        2
 
+enum { PSG_50, PSG_25, PSG_12 };
+
 typedef struct audio_voice_t {
     char                    song[4096], *mml;
+    int                     psg;
     float                   octave, tempo, length;
-    int                     ttl, t0, t1;
+    int                     ttl, t0, t1, t2;
     float                   e0, e1;
 } audio_voice_t;
 
@@ -409,6 +412,17 @@ static int mml_parse_number(audio_voice_t *voice) {
 
 
 /*----------------------------------------------------------------------------*/
+static void mml_parse_mode(audio_voice_t *voice) {
+    if (!*voice->mml) return;
+    switch (*voice->mml) {
+        case '5': voice->psg = PSG_50; break;
+        case '2': voice->psg = PSG_25; break;
+        case '1': voice->psg = PSG_12; break;
+    }
+}
+
+
+/*----------------------------------------------------------------------------*/
 static void mml_parse_note(audio_voice_t *voice, int key) {
     int                     tmp;
     float                   length;
@@ -431,6 +445,11 @@ static void mml_parse_note(audio_voice_t *voice, int key) {
         voice->t1 = (int)(audio_frequency / frequencies[key]);
         voice->e0 = 1.0f;
         voice->e1 = 1.0f / (float)voice->ttl;
+        switch (voice->psg) {
+            case PSG_50: voice->t2 = voice->t1 / 2; break;
+            case PSG_25: voice->t2 = voice->t1 / 4; break;
+            case PSG_12: voice->t2 = voice->t1 / 8; break;
+        }
     } else {
         voice->t0 = voice->t1 = 0;
         voice->e0 = voice->e1 = 0.0f;
@@ -450,6 +469,7 @@ static int mml_parse_next(audio_voice_t *voice) {
             case 'o': case 'O': tmp = mml_parse_number(voice); voice->octave = clamp(tmp, 0, 6); break;
             case 'l': case 'L': tmp = mml_parse_number(voice); voice->length = 1.0f / clamp(tmp, 1, 64); break;
             case 't': case 'T': tmp = mml_parse_number(voice); voice->tempo = 60.0f / (clamp(tmp, 32, 200) / 4) * audio_frequency; break;
+            case 'm': case 'M': mml_parse_mode(voice); break;
             case 'p': case 'P': mml_parse_note(voice, 0); return 1;
             case 'r': case 'R': mml_parse_note(voice, 0); return 1;
             case 'c': case 'C': mml_parse_note(voice, 4); return 1;
@@ -483,7 +503,7 @@ static void mix_audio_voices(void *userdata, Uint8 *stream8, int len8) {
             if (voice->ttl > 0) {
                 --voice->ttl;
                 if (++voice->t0 >= voice->t1) voice->t0 = 0;
-                sample = (voice->t0 < voice->t1 / 2) ? 1.0f : -1.0f;
+                sample = (voice->t0 < voice->t2) ? 1.0f : -1.0f;
                 voice->e0 -= voice->e1;
                 total += sample * 0.125f * voice->e0;
             } else {
@@ -716,6 +736,7 @@ static int f_play(lua_State *L) {
     luaL_argcheck(L, length > 0 && length < sizeof(voice->song), 2, "invalid length of MML string");
     SDL_LockAudioDevice(audio_device);
     SDL_strlcpy(voice->song, song, sizeof(voice->song));
+    voice->psg = PSG_50;
     voice->ttl = 0;
     voice->mml = voice->song;
     voice->octave = 3;
@@ -889,7 +910,7 @@ static void fetch_on_success(emscripten_fetch_t *fetch) {
     int                     status;
     
     // compile the downloaded Lua script
-    status = luaL_loadbuffer(global_L, (const char*)fetch->data, (size_t)fetch->numBytes, "@init.lua");
+    status = luaL_loadbuffer(global_L, (const char*)fetch->data, (size_t)fetch->numBytes, "@game.lua");
     emscripten_fetch_close(fetch);
     if (status != LUA_OK) lua_error(global_L);
     lua_call(global_L, 0, 0);
@@ -906,7 +927,7 @@ static void fetch_on_success(emscripten_fetch_t *fetch) {
 /*----------------------------------------------------------------------------*/
 static void fetch_on_error(emscripten_fetch_t *fetch) {
     emscripten_fetch_close(fetch);
-    luaL_error(global_L, "Failed to download 'init.lua'");
+    luaL_error(global_L, "Failed to download 'game.lua'");
 }
 
 
@@ -921,7 +942,7 @@ static void run_event_loop(lua_State *L) {
     attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
     attr.onsuccess = fetch_on_success;
     attr.onerror = fetch_on_error;
-    emscripten_fetch(&attr, "init.lua");
+    emscripten_fetch(&attr, "game.lua");
 
     last_tick = SDL_GetTicks();
     emscripten_set_main_loop(run_event_step, 0, 1);    
@@ -937,7 +958,7 @@ static void run_event_loop(lua_State *L) {
     lua_Integer             frame_counter = 0;
 
     // load script and execute
-    if (luaL_loadfile(L, "init.lua") != LUA_OK)
+    if (luaL_loadfile(L, "game.lua") != LUA_OK)
         lua_error(L);
     lua_call(L, 0, 0);
 

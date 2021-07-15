@@ -109,6 +109,7 @@ Remarks to MML:
 | **<**, **>** | Go one octave down or up |
 | **l** | Sets the default note length |
 | **t** | Sets the tempo in beats per minute |
+| **m** | Set the PSG mode: **5** 50% pulse wave, **2** 25% pulse wave, **1** 12.5% pulse wave. Example: *m2* sets the playback to 25% pulse wave. |
 
 ```lua
 ltro.play(1, 'cdefgab>c') -- just plays one octave :)
@@ -123,6 +124,10 @@ ltro.stop(1) -- stop audio channel 1
 ```
 
 ## Update Log
+
+### 0.4.0
+- renamed "init.lua" to "game.lua"
+- added 3 types of pulse wave generators
 
 ### 0.3.0
 - added HTML5/JavaScript port (Emscripten)
